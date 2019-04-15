@@ -11,9 +11,9 @@ class HessianFree(torch.optim.Optimizer):
         params (iterable): iterable of parameters to optimize or dicts defining
             parameter groups
         lr (float, optional): learning rate (default: 1)
-        delta_decay (float, optional): Decay for previous result of computing
-            delta with conjugate gradient method for the initialization of next
-            iteration conjugate gradient.
+        delta_decay (float, optional): Decay of the previous result of computing
+            delta with conjugate gradient method for the initialization of the 
+            next conjugate gradient iteration
         damping (float, optional): Initial value of the Tikhonov damping
             coefficient. (default: 0.5)
         max_iter (int, optional): Maximum number of Conjugate-Gradient
@@ -219,7 +219,7 @@ class HessianFree(torch.optim.Optimizer):
             b (torch.Tensor): The vector b.
             x0 (torch.Tensor): An initial guess for x.
             tol (float, optional): Tolerance for convergence.
-            marteens (bool, optional): Flag for Marteens convergence criterion.
+            marteens (bool, optional): Flag for Marteens' convergence criterion.
         """
 
         x = [x0]
@@ -259,3 +259,45 @@ class HessianFree(torch.optim.Optimizer):
             p = beta * p - r
 
         return (x, m) if marteens else (x, None)
+
+    def _Hv(self, gradient, vec, damping):
+        """
+        Computes the Hessian vector product.
+        """
+        # gg = torch.autograd.grad(gradient, self._params,
+        #                          grad_outputs=vec, retain_graph=True)
+        # Hv = torch.cat([g.contiguous().view(-1) for g in gg])
+
+        Hv = self._Rop(gradient, self._params, vec)
+
+        return Hv + damping * vec  # Tikhonov damping (Section 20.8.1)
+
+    def _Gv(self, loss, output, vec, damping):
+        """
+        Computes the generalized Gauss-Newton vector product.
+        """
+        Jv = self._Rop(output, self._params, vec)
+
+        [gradient] = torch.autograd.grad(loss, output, create_graph=True)
+        HJv = self._Rop(gradient, output, Jv)
+
+        JHJv = torch.autograd.grad(
+            output, self._params, grad_outputs=HJv, retain_graph=True)
+
+        Gv = torch.cat([j.contiguous().view(-1) for j in JHJv])
+        return Gv + damping * vec  # Tikhonov damping (Section 20.8.1)
+
+    def _Rop(self, y, x, vec):
+        """
+        Computes the product between a Jacobian (dy/dx) and a vector: R-operator
+        """
+        ws = torch.zeros_like(y).requires_grad_(True)
+
+        gs = torch.autograd.grad(
+            y, x, grad_outputs=ws, create_graph=True, retain_graph=True)
+        gs = torch.cat([g.flatten() for g in gs], 0)
+
+        [re] = torch.autograd.grad(
+            gs, ws, grad_outputs=vec, create_graph=True, retain_graph=True)
+
+        return re

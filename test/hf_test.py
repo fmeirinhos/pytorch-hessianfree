@@ -22,6 +22,7 @@ def closure():
     return loss, z
 
 optimizer = HessianFree(model.parameters(), verbose=True)
+optimizer = HessianFree(model.parameters(), use_gnm=True, verbose=True)
 
 for i in range(5):
     print("Epoch {}".format(i))
