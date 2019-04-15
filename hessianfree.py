@@ -18,9 +18,9 @@ class HessianFree(torch.optim.Optimizer):
             coefficient. (default: 0.5)
         max_iter (int, optional): Maximum number of Conjugate-Gradient
             iterations (default: 50)
-        verbose (bool, optional): Print statements
         use_gnm (bool, optional): Use the generalized Gauss-Newton matrix:
             probably solves the indefiniteness of the Hessian (Section 20.6)
+        verbose (bool, optional): Print statements (debugging)
 
     .. _Training Deep and Recurrent Networks with Hessian-Free Optimization:
         https://doi.org/10.1007/978-3-642-35289-8_27

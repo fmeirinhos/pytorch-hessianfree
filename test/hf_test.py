@@ -21,7 +21,6 @@ def closure():
     loss.backward(create_graph=True)
     return loss, z
 
-optimizer = HessianFree(model.parameters(), verbose=True)
 optimizer = HessianFree(model.parameters(), use_gnm=True, verbose=True)
 
 for i in range(5):
