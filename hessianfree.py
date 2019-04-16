@@ -154,7 +154,7 @@ class HessianFree(torch.optim.Optimizer):
 
         # Conjugate-Gradient
         deltas, Ms = self._CG(A=A, b=b.neg(), x0=init_delta,
-                              max_iter=cg_max_iter, marteens=True)
+                              max_iter=cg_max_iter, martens=True)
 
         # Update parameters
         delta = state['init_delta'] = deltas[-1]
@@ -220,7 +220,7 @@ class HessianFree(torch.optim.Optimizer):
 
         return loss_now
 
-    def _CG(self, A, b, x0, max_iter=50, tol=1e-12, eps=1e-12, marteens=False):
+    def _CG(self, A, b, x0, max_iter=50, tol=1e-12, eps=1e-12, martens=False):
         """
         Minimizes the linear system x^T.A.x - x^T b using the conjugate gradient
         method
@@ -232,7 +232,7 @@ class HessianFree(torch.optim.Optimizer):
             b (torch.Tensor): The vector b.
             x0 (torch.Tensor): An initial guess for x.
             tol (float, optional): Tolerance for convergence.
-            marteens (bool, optional): Flag for Marteens' convergence criterion.
+            martens (bool, optional): Flag for Marteens' convergence criterion.
         """
 
         x = [x0]
@@ -240,7 +240,7 @@ class HessianFree(torch.optim.Optimizer):
         p = -r
         res_i_norm = r @ r
 
-        if marteens:
+        if martens:
             m = [0.5 * (r - b) @ x0]
 
         for i in range(max_iter):
@@ -257,7 +257,7 @@ class HessianFree(torch.optim.Optimizer):
             res_i_norm = res_ip1_norm
 
             # Marteens' Relative Progress stopping condition (Section 20.4)
-            if marteens:
+            if martens:
                 m.append(0.5 * A(x[i + 1]) @ x[i + 1] - b @ x[i + 1])
 
                 k = max(10, int(i / 10))
@@ -271,7 +271,7 @@ class HessianFree(torch.optim.Optimizer):
 
             p = beta * p - r
 
-        return (x, m) if marteens else (x, None)
+        return (x, m) if martens else (x, None)
 
     def _Hv(self, gradient, vec, damping):
         """
@@ -283,7 +283,7 @@ class HessianFree(torch.optim.Optimizer):
         vec_ = self._cast_like_params(vec)
 
         Hv = self._Rop(gradient, self._params, vec_)
-        Hv = torch.cat([h.flatten() for h in Hv])
+        Hv = torch.cat([h.detach().flatten() for h in Hv])
 
         return Hv + damping * vec  # Tikhonov damping (Section 20.8.1)
 
@@ -300,7 +300,7 @@ class HessianFree(torch.optim.Optimizer):
         JHJv = torch.autograd.grad(
             output, self._params, grad_outputs=HJv, retain_graph=True)
 
-        Gv = torch.cat([j.flatten() for j in JHJv])
+        Gv = torch.cat([j.detach().flatten() for j in JHJv])
         return Gv + damping * vec  # Tikhonov damping (Section 20.8.1)
 
     def _Rop(self, y, x, vec):
@@ -313,10 +313,10 @@ class HessianFree(torch.optim.Optimizer):
         else:
             ws = torch.zeros_like(y).requires_grad_(True)
 
-        gradient = torch.autograd.grad(
-            y, x, grad_outputs=ws, create_graph=True, retain_graph=True)
+        jacobian = torch.autograd.grad(
+            y, x, grad_outputs=ws, create_graph=True)
 
         re = torch.autograd.grad(
-            gradient, ws, grad_outputs=vec, create_graph=True, retain_graph=True)
+            jacobian, ws, grad_outputs=vec, retain_graph=True)
 
         return tuple([j.detach() for j in re])
