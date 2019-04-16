@@ -69,6 +69,19 @@ class HessianFree(torch.optim.Optimizer):
             offset += numel
         assert offset == self._numel()
 
+    def _cast_like_params(self, vec):
+        params_new = []
+        # Pointer for slicing the vector for each parameter
+        offset = 0
+        for p in self._params:
+            numel = p.numel()
+            # view as to avoid deprecated pointwise semantics
+            param_new = vec[offset:offset + numel].view_as(p).data
+            params_new.append(param_new)
+            offset += numel
+
+        return list(params_new)
+
     def _gather_flat_params(self):
         views = list()
         for p in self._params:
@@ -267,8 +280,10 @@ class HessianFree(torch.optim.Optimizer):
         # gg = torch.autograd.grad(gradient, self._params,
         #                          grad_outputs=vec, retain_graph=True)
         # Hv = torch.cat([g.contiguous().view(-1) for g in gg])
+        vec_ = self._cast_like_params(vec)
 
-        Hv = self._Rop(gradient, self._params, vec)
+        Hv = self._Rop(gradient, self._params, vec_)
+        Hv = torch.cat([h.flatten() for h in Hv])
 
         return Hv + damping * vec  # Tikhonov damping (Section 20.8.1)
 
@@ -276,28 +291,32 @@ class HessianFree(torch.optim.Optimizer):
         """
         Computes the generalized Gauss-Newton vector product.
         """
-        Jv = self._Rop(output, self._params, vec)
+        vec_ = self._cast_like_params(vec)
+        Jv = self._Rop(output, self._params, vec_)
 
-        [gradient] = torch.autograd.grad(loss, output, create_graph=True)
+        gradient = torch.autograd.grad(loss, output, create_graph=True)
         HJv = self._Rop(gradient, output, Jv)
 
         JHJv = torch.autograd.grad(
             output, self._params, grad_outputs=HJv, retain_graph=True)
 
-        Gv = torch.cat([j.contiguous().view(-1) for j in JHJv])
+        Gv = torch.cat([j.flatten() for j in JHJv])
         return Gv + damping * vec  # Tikhonov damping (Section 20.8.1)
 
     def _Rop(self, y, x, vec):
         """
         Computes the product between a Jacobian (dy/dx) and a vector: R-operator
         """
-        ws = torch.zeros_like(y).requires_grad_(True)
+        if isinstance(y, tuple):
+            ws = [torch.zeros_like(
+                y_i).requires_grad_(True) for y_i in y]
+        else:
+            ws = torch.zeros_like(y).requires_grad_(True)
 
-        gs = torch.autograd.grad(
+        gradient = torch.autograd.grad(
             y, x, grad_outputs=ws, create_graph=True, retain_graph=True)
-        gs = torch.cat([g.flatten() for g in gs], 0)
 
-        [re] = torch.autograd.grad(
-            gs, ws, grad_outputs=vec, create_graph=True, retain_graph=True)
+        re = torch.autograd.grad(
+            gradient, ws, grad_outputs=vec, create_graph=True, retain_graph=True)
 
-        return re
+        return tuple([j.detach() for j in re])
