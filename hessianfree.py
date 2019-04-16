@@ -232,7 +232,7 @@ class HessianFree(torch.optim.Optimizer):
             b (torch.Tensor): The vector b.
             x0 (torch.Tensor): An initial guess for x.
             tol (float, optional): Tolerance for convergence.
-            martens (bool, optional): Flag for Marteens' convergence criterion.
+            martens (bool, optional): Flag for Martens' convergence criterion.
         """
 
         x = [x0]
@@ -256,7 +256,7 @@ class HessianFree(torch.optim.Optimizer):
             beta = res_ip1_norm / (res_i_norm + eps)
             res_i_norm = res_ip1_norm
 
-            # Marteens' Relative Progress stopping condition (Section 20.4)
+            # Martens' Relative Progress stopping condition (Section 20.4)
             if martens:
                 m.append(0.5 * A(x[i + 1]) @ x[i + 1] - b @ x[i + 1])
 
