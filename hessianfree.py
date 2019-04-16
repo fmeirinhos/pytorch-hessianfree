@@ -70,17 +70,16 @@ class HessianFree(torch.optim.Optimizer):
         assert offset == self._numel()
 
     def _cast_like_params(self, vec):
-        params_new = []
-        # Pointer for slicing the vector for each parameter
+        views = []
         offset = 0
         for p in self._params:
             numel = p.numel()
-            # view as to avoid deprecated pointwise semantics
-            param_new = vec[offset:offset + numel].view_as(p).data
-            params_new.append(param_new)
+            view = vec[offset:offset + numel].view_as(p).data
+            views.append(view)
             offset += numel
+        assert offset == self._numel()
 
-        return list(params_new)
+        return list(views)
 
     def _gather_flat_params(self):
         views = list()
