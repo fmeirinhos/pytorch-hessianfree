@@ -11,9 +11,9 @@ class HessianFree(torch.optim.Optimizer):
         params (iterable): iterable of parameters to optimize or dicts defining
             parameter groups
         lr (float, optional): learning rate (default: 1)
-        delta_decay (float, optional): Decay of the previous result of computing
-            delta with conjugate gradient method for the initialization of the 
-            next conjugate gradient iteration
+        delta_decay (float, optional): Decay of the previous result of
+            computing delta with conjugate gradient method for the
+            initialization of the next conjugate gradient iteration
         damping (float, optional): Initial value of the Tikhonov damping
             coefficient. (default: 0.5)
         max_iter (int, optional): Maximum number of Conjugate-Gradient
@@ -105,8 +105,8 @@ class HessianFree(torch.optim.Optimizer):
         Performs a single optimization step.
 
         Arguments:
-            closure (callable): A closure that re-evaluates the model (yielding 
-                its output) and returns a tuple of the loss and the output
+            closure (callable): A closure that re-evaluates the model
+                and returns a tuple of the loss and the output.
             b (callable, optional): A closure that calculates the vector b in
                 the minimization problem x^T . A . x + x^T b.
         """
@@ -221,8 +221,8 @@ class HessianFree(torch.optim.Optimizer):
 
     def _CG(self, A, b, x0, max_iter=50, tol=1e-12, eps=1e-12, martens=False):
         """
-        Minimizes the linear system x^T.A.x - x^T b using the conjugate gradient
-        method
+        Minimizes the linear system x^T.A.x - x^T b using the conjugate
+            gradient method
 
         Arguments:
             A (callable): An an abstract linear operator implementing the
@@ -282,7 +282,7 @@ class HessianFree(torch.optim.Optimizer):
         vec_ = self._cast_like_params(vec)
 
         Hv = self._Rop(gradient, self._params, vec_)
-        Hv = torch.cat([h.detach().flatten() for h in Hv])
+        Hv = torch.cat([h.flatten() for h in Hv])
 
         return Hv + damping * vec  # Tikhonov damping (Section 20.8.1)
 
@@ -302,9 +302,9 @@ class HessianFree(torch.optim.Optimizer):
         Gv = torch.cat([j.detach().flatten() for j in JHJv])
         return Gv + damping * vec  # Tikhonov damping (Section 20.8.1)
 
-    def _Rop(self, y, x, vec):
+    def _Rop(self, y, x, v):
         """
-        Computes the product between a Jacobian (dy/dx) and a vector: R-operator
+        Computes the product (dy_i/dx_j) v_j: R-operator
         """
         if isinstance(y, tuple):
             ws = [torch.zeros_like(
@@ -315,7 +315,7 @@ class HessianFree(torch.optim.Optimizer):
         jacobian = torch.autograd.grad(
             y, x, grad_outputs=ws, create_graph=True)
 
-        re = torch.autograd.grad(
-            jacobian, ws, grad_outputs=vec, retain_graph=True)
+        Jv = torch.autograd.grad(
+            jacobian, ws, grad_outputs=v, retain_graph=True)
 
-        return tuple([j.detach() for j in re])
+        return tuple([j.detach() for j in Jv])

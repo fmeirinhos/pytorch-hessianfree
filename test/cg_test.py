@@ -1,10 +1,9 @@
-import numpy as np
-from scipy.sparse.linalg import cg
-import torch
-
 import sys
 sys.path.append("..")
 
+import numpy as np
+from scipy.sparse.linalg import cg
+import torch
 from hessianfree import HessianFree
 
 n = 50
@@ -31,6 +30,7 @@ x0_t = torch.from_numpy(x0)
 
 def A_lin(vec):
     return A_t @ vec
+
 
 # Torch result
 cg_t = hf._CG(A=A_lin, b=b_t, x0=x0_t, max_iter=1000)[0][-1]
