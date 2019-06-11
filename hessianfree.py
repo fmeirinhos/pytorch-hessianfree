@@ -142,7 +142,7 @@ class HessianFree(torch.optim.Optimizer):
             def A(x):
                 return self._Hv(flat_grad, x, damping)
 
-        b = flat_grad.detach() if b is None else b().detach()
+        b = flat_grad.detach() if b is None else b().detach().flatten()
 
         # Initializing Conjugate-Gradient (Section 20.10)
         # NOTE: This seems to be quite terrible (at least without a PC)
