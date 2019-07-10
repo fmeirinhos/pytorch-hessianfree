@@ -145,11 +145,10 @@ class HessianFree(torch.optim.Optimizer):
         b = flat_grad.detach() if b is None else b().detach().flatten()
 
         # Initializing Conjugate-Gradient (Section 20.10)
-        # NOTE: This seems to be quite terrible (at least without a PC)
-        # if state.get('init_delta') is not None:
-        #     init_delta = delta_decay * state.get('init_delta')
-        # else:
-        init_delta = torch.zeros_like(flat_params)
+        if state.get('init_delta') is not None:
+            init_delta = delta_decay * state.get('init_delta')
+        else:
+            init_delta = torch.zeros_like(flat_params)
 
         # Conjugate-Gradient
         deltas, Ms = self._CG(A=A, b=b.neg(), x0=init_delta,
