@@ -20,7 +20,6 @@ class HessianFree(torch.optim.Optimizer):
             iterations (default: 50)
         use_gnm (bool, optional): Use the generalized Gauss-Newton matrix:
             probably solves the indefiniteness of the Hessian (Section 20.6)
-        prec (callable, optional): A preconditioner as linear operator
         verbose (bool, optional): Print statements (debugging)
 
     .. _Training Deep and Recurrent Networks with Hessian-Free Optimization:
@@ -32,9 +31,8 @@ class HessianFree(torch.optim.Optimizer):
                  damping=0.5,
                  delta_decay=0.95,
                  cg_max_iter=100,
-                 verbose=False,
                  use_gnm=True,
-                 prec=None):
+                 verbose=False):
 
         if not (0.0 < lr <= 1):
             raise ValueError("Invalid lr: {}".format(lr))
@@ -50,7 +48,6 @@ class HessianFree(torch.optim.Optimizer):
                         delta_decay=delta_decay,
                         cg_max_iter=cg_max_iter,
                         use_gnm=use_gnm,
-                        prec=prec,
                         verbose=verbose)
         super(HessianFree, self).__init__(params, defaults)
 
@@ -103,7 +100,7 @@ class HessianFree(torch.optim.Optimizer):
             views.append(view)
         return torch.cat(views, 0)
 
-    def step(self, closure, b=None):
+    def step(self, closure, b=None, M=None):
         """
         Performs a single optimization step.
 
@@ -112,6 +109,7 @@ class HessianFree(torch.optim.Optimizer):
                 and returns a tuple of the loss and the output.
             b (callable, optional): A closure that calculates the vector b in
                 the minimization problem x^T . A . x + x^T b.
+            M (callable, optional): The preconditioner of A
         """
         assert len(self.param_groups) == 1
 
@@ -121,7 +119,6 @@ class HessianFree(torch.optim.Optimizer):
         cg_max_iter = group['cg_max_iter']
         damping = group['damping']
         use_gnm = group['use_gnm']
-        prec = M = group['prec']
         verbose = group['verbose']
 
         state = self.state[self._params[0]]
@@ -148,8 +145,10 @@ class HessianFree(torch.optim.Optimizer):
 
         if M is not None:
             # Preconditioner recipe (Section 20.13)
+            m = M()
+
             def M(x):
-                return ((prec() + damping) ** (-0.85)) @ x
+                return ((m + damping) ** (-0.85)) @ x
 
         b = flat_grad.detach() if b is None else b().detach().flatten()
 

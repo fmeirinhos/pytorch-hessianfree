@@ -22,17 +22,16 @@ def closure():
     return loss, z
 
 
-def prec():
+def M():  # preconditioner
     return empirical_fisher_diagonal(model, x, y, criterion)
 
 
-optimizer = HessianFree(model.parameters(), use_gnm=True,
-                        prec=prec, verbose=True)
+optimizer = HessianFree(model.parameters(), use_gnm=True, verbose=True)
 
 for i in range(20):
     print("Epoch {}".format(i))
     optimizer.zero_grad()
-    optimizer.step(closure)
+    optimizer.step(closure, M=None)
 
 print("Target data\t {}".format(y))
 print("Predicted\t {}".format(model(x)))
