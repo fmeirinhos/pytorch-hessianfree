@@ -20,6 +20,7 @@ class HessianFree(torch.optim.Optimizer):
             iterations (default: 50)
         use_gnm (bool, optional): Use the generalized Gauss-Newton matrix:
             probably solves the indefiniteness of the Hessian (Section 20.6)
+        prec (callable, optional): A preconditioner as linear operator
         verbose (bool, optional): Print statements (debugging)
 
     .. _Training Deep and Recurrent Networks with Hessian-Free Optimization:
@@ -30,9 +31,10 @@ class HessianFree(torch.optim.Optimizer):
                  lr=1,
                  damping=0.5,
                  delta_decay=0.95,
-                 cg_max_iter=50,
+                 cg_max_iter=100,
                  verbose=False,
-                 use_gnm=True):
+                 use_gnm=True,
+                 prec=None):
 
         if not (0.0 < lr <= 1):
             raise ValueError("Invalid lr: {}".format(lr))
@@ -48,6 +50,7 @@ class HessianFree(torch.optim.Optimizer):
                         delta_decay=delta_decay,
                         cg_max_iter=cg_max_iter,
                         use_gnm=use_gnm,
+                        prec=prec,
                         verbose=verbose)
         super(HessianFree, self).__init__(params, defaults)
 
@@ -118,6 +121,7 @@ class HessianFree(torch.optim.Optimizer):
         cg_max_iter = group['cg_max_iter']
         damping = group['damping']
         use_gnm = group['use_gnm']
+        prec = M = group['prec']
         verbose = group['verbose']
 
         state = self.state[self._params[0]]
@@ -142,6 +146,11 @@ class HessianFree(torch.optim.Optimizer):
             def A(x):
                 return self._Hv(flat_grad, x, damping)
 
+        if M is not None:
+            # Preconditioner recipe (Section 20.13)
+            def M(x):
+                return ((prec() + damping) ** (-0.85)) @ x
+
         b = flat_grad.detach() if b is None else b().detach().flatten()
 
         # Initializing Conjugate-Gradient (Section 20.10)
@@ -152,7 +161,7 @@ class HessianFree(torch.optim.Optimizer):
 
         # Conjugate-Gradient
         deltas, Ms = self._CG(A=A, b=b.neg(), x0=init_delta,
-                              max_iter=cg_max_iter, martens=True)
+                              M=M, max_iter=cg_max_iter, martens=True)
 
         # Update parameters
         delta = state['init_delta'] = deltas[-1]
@@ -168,7 +177,7 @@ class HessianFree(torch.optim.Optimizer):
             print("Original loss: \t{}".format(float(loss_before)))
             print("Loss before bt: {}".format(float(loss_now)))
 
-        for (d, m) in zip(reversed(deltas[:-1]), reversed(Ms[:-1])):
+        for (d, m) in zip(reversed(deltas[:-1][::2]), reversed(Ms[:-1][::2])):
             self._modify_params(flat_params + d)
             loss_prev = closure()[0]
             if float(loss_prev) > float(loss_now):
@@ -188,6 +197,8 @@ class HessianFree(torch.optim.Optimizer):
             group['damping'] *= 3 / 2
         elif reduction_ratio > 0.75:
             group['damping'] *= 2 / 3
+        if reduction_ratio < 0:
+            group['init_delta'] = 0
 
         if verbose:
             print("Reduction_ratio: {}".format(reduction_ratio))
@@ -218,24 +229,33 @@ class HessianFree(torch.optim.Optimizer):
 
         return loss_now
 
-    def _CG(self, A, b, x0, max_iter=50, tol=1e-12, eps=1e-12, martens=False):
+    def _CG(self, A, b, x0, M=None, max_iter=50, tol=1e-12, eps=1e-12,
+            martens=False):
         """
         Minimizes the linear system x^T.A.x - x^T b using the conjugate
             gradient method
 
         Arguments:
-            A (callable): An an abstract linear operator implementing the
+            A (callable): An abstract linear operator implementing the
                 product A.x. A must represent a hermitian, positive definite
                 matrix.
             b (torch.Tensor): The vector b.
             x0 (torch.Tensor): An initial guess for x.
+            M (callable, optional): An abstract linear operator implementing
+            the product of the preconditioner (for A) matrix with a vector.
             tol (float, optional): Tolerance for convergence.
             martens (bool, optional): Flag for Martens' convergence criterion.
         """
 
         x = [x0]
         r = A(x[0]) - b
-        p = -r
+
+        if M is not None:
+            y = M(r)
+            p = -y
+        else:
+            p = -r
+
         res_i_norm = r @ r
 
         if martens:
@@ -249,7 +269,11 @@ class HessianFree(torch.optim.Optimizer):
             x.append(x[i] + alpha * p)
             r = r + alpha * Ap
 
-            res_ip1_norm = r @ r
+            if M is not None:
+                y = M(r)
+                res_ip1_norm = y @ r
+            else:
+                res_ip1_norm = r @ r
 
             beta = res_ip1_norm / (res_i_norm + eps)
             res_i_norm = res_ip1_norm
@@ -267,7 +291,10 @@ class HessianFree(torch.optim.Optimizer):
             if res_i_norm < tol:
                 break
 
-            p = beta * p - r
+            if M is not None:
+                p = - y + beta * p
+            else:
+                p = - r + beta * p
 
         return (x, m) if martens else (x, None)
 
@@ -318,3 +345,16 @@ class HessianFree(torch.optim.Optimizer):
             jacobian, ws, grad_outputs=v, retain_graph=True)
 
         return tuple([j.detach() for j in Jv])
+
+
+# The empirical Fisher diagonal (Section 20.11.3) #NOTE: sum or mean?
+def empirical_fisher_diagonal(net, xs, ys, criterion):
+    grads = list()
+    for (x, y) in zip(xs, ys):
+        fi = criterion(net(x), y)
+        grads.append(torch.autograd.grad(fi, net.parameters(),
+                                         retain_graph=False))
+
+    vec = torch.cat([(torch.stack(p) ** 2).mean(0).detach().flatten()
+                     for p in zip(*grads)])
+    return torch.diag(vec)
