@@ -2,9 +2,7 @@
 PyTorch implementation of Hessian Free optimisation
 
 Implemented some parts of [Training Deep and Recurrent Networks with Hessian-Free Optimization](https://link.springer.com/chapter/10.1007/978-3-642-35289-8_27) by Martens and Sutskever (2012):
-
-
-* Preconditioner for CG; includes empirical Fisher diagonal (Section 20.11)
+* Preconditioner for CG, includes empirical Fisher diagonal (Section 20.11)
 * Gauss-Newton matrix and Hessian matrix (Section 20.5 & 20.6)
 * Martens' CG stopping criteria (Section 20.4)
 * CG backtracking (Section 20.8.7)
