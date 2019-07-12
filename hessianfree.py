@@ -100,7 +100,7 @@ class HessianFree(torch.optim.Optimizer):
             views.append(view)
         return torch.cat(views, 0)
 
-    def step(self, closure, b=None, M=None):
+    def step(self, closure, b=None, M_inv=None):
         """
         Performs a single optimization step.
 
@@ -109,7 +109,7 @@ class HessianFree(torch.optim.Optimizer):
                 and returns a tuple of the loss and the output.
             b (callable, optional): A closure that calculates the vector b in
                 the minimization problem x^T . A . x + x^T b.
-            M (callable, optional): The preconditioner of A
+            M (callable, optional): The INVERSE preconditioner of A
         """
         assert len(self.param_groups) == 1
 
@@ -143,12 +143,22 @@ class HessianFree(torch.optim.Optimizer):
             def A(x):
                 return self._Hv(flat_grad, x, damping)
 
-        if M is not None:
-            # Preconditioner recipe (Section 20.13)
-            m = M()
+        if M_inv is not None:
+            m_inv = M_inv()
 
-            def M(x):
-                return ((m + damping) ** (-0.85)) @ x
+            # Preconditioner recipe (Section 20.13)
+            if m_inv.dim() == 1:
+                m = (m_inv + damping) ** (-0.85)
+
+                def M(x):
+                    return m * x
+            else:
+                m = torch.inverse(m_inv + damping * torch.eye(*m_inv.shape))
+
+                def M(x):
+                    return m @ x
+        else:
+            M = None
 
         b = flat_grad.detach() if b is None else b().detach().flatten()
 
@@ -346,7 +356,7 @@ class HessianFree(torch.optim.Optimizer):
         return tuple([j.detach() for j in Jv])
 
 
-# The empirical Fisher diagonal (Section 20.11.3) #NOTE: sum or mean?
+# The empirical Fisher diagonal (Section 20.11.3)
 def empirical_fisher_diagonal(net, xs, ys, criterion):
     grads = list()
     for (x, y) in zip(xs, ys):
@@ -356,4 +366,18 @@ def empirical_fisher_diagonal(net, xs, ys, criterion):
 
     vec = torch.cat([(torch.stack(p) ** 2).mean(0).detach().flatten()
                      for p in zip(*grads)])
-    return torch.diag(vec)
+    return vec
+
+
+# The empirical Fisher matrix (Section 20.11.3)
+def empirical_fisher_matrix(net, xs, ys, criterion):
+    grads = list()
+    for (x, y) in zip(xs, ys):
+        fi = criterion(net(x), y)
+        grad = torch.autograd.grad(fi, net.parameters(),
+                                   retain_graph=False)
+        grads.append(torch.cat([g.detach().flatten() for g in grad]))
+
+    grads = torch.stack(grads)
+    n_batch = grads.shape[0]
+    return torch.einsum('ij,ik->jk', grads, grads) / n_batch

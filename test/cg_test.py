@@ -36,4 +36,5 @@ def A_lin(vec):
 cg_t = hf._CG(A=A_lin, b=b_t, x0=x0_t, max_iter=1000)[0][-1]
 
 # Sometimes fails due to rtol
-assert np.allclose(cg_np, cg_t.data.numpy(), rtol=1e-4, atol=1e-8)
+assert np.allclose(cg_np, cg_t.data.numpy(),
+                   rtol=1e-4, atol=1e-8), "Test failed"

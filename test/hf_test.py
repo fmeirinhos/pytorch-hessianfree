@@ -3,7 +3,9 @@ import torch
 import sys
 sys.path.append("..")
 
-from hessianfree import HessianFree, empirical_fisher_diagonal
+from hessianfree import (HessianFree,
+                         empirical_fisher_diagonal,
+                         empirical_fisher_matrix)
 
 x = torch.Tensor([[0.333, 1]])
 y = torch.Tensor([[0.4, 0.2]])
@@ -22,16 +24,17 @@ def closure():
     return loss, z
 
 
-def M():  # preconditioner
-    return empirical_fisher_diagonal(model, x, y, criterion)
-
+# def M_inv():  # inverse preconditioner
+#     return empirical_fisher_diagonal(model, x, y, criterion)
+# def M_inv():  # inverse preconditioner
+#     return empirical_fisher_matrix(model, x, y, criterion)
 
 optimizer = HessianFree(model.parameters(), use_gnm=True, verbose=True)
 
 for i in range(20):
     print("Epoch {}".format(i))
     optimizer.zero_grad()
-    optimizer.step(closure, M=None)
+    optimizer.step(closure, M_inv=None)
 
 print("Target data\t {}".format(y))
 print("Predicted\t {}".format(model(x)))
