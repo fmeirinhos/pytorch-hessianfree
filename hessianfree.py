@@ -168,9 +168,12 @@ class HessianFree(torch.optim.Optimizer):
         else:
             init_delta = torch.zeros_like(flat_params)
 
+        eps = torch.finfo(b.dtype).eps
+
         # Conjugate-Gradient
         deltas, Ms = self._CG(A=A, b=b.neg(), x0=init_delta,
-                              M=M, max_iter=cg_max_iter, martens=True)
+                              M=M, max_iter=cg_max_iter,
+                              tol=1e1 * eps, eps=eps, martens=True)
 
         # Update parameters
         delta = state['init_delta'] = deltas[-1]
@@ -238,7 +241,7 @@ class HessianFree(torch.optim.Optimizer):
 
         return loss_now
 
-    def _CG(self, A, b, x0, M=None, max_iter=50, tol=1e-12, eps=1e-12,
+    def _CG(self, A, b, x0, M=None, max_iter=50, tol=1.2e-6, eps=1.2e-7,
             martens=False):
         """
         Minimizes the linear system x^T.A.x - x^T b using the conjugate
@@ -297,7 +300,7 @@ class HessianFree(torch.optim.Optimizer):
                     if stop < 1e-4:
                         break
 
-            if res_i_norm < tol:
+            if res_i_norm < tol or torch.isnan(res_i_norm):
                 break
 
             if M is not None:
