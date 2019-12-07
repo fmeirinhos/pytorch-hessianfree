@@ -1,4 +1,5 @@
 import torch
+from torch.nn.utils.convert_parameters import vector_to_parameters, parameters_to_vector
 from functools import reduce
 
 
@@ -54,40 +55,6 @@ class HessianFree(torch.optim.Optimizer):
         self._params = self.param_groups[0]['params']
         self._numel_cache = None
 
-    def _numel(self):
-        if self._numel_cache is None:
-            self._numel_cache = reduce(
-                lambda total, p: total + p.numel(), self._params, 0)
-        return self._numel_cache
-
-    def _modify_params(self, new_params):
-        offset = 0
-        for p in self._params:
-            numel = p.numel()
-            # view as to avoid deprecated pointwise semantics
-            p.data = new_params[offset:offset + numel].view_as(p.data)
-            offset += numel
-        assert offset == self._numel()
-
-    def _cast_like_params(self, vec):
-        views = []
-        offset = 0
-        for p in self._params:
-            numel = p.numel()
-            view = vec[offset:offset + numel].view_as(p).data
-            views.append(view)
-            offset += numel
-        assert offset == self._numel()
-
-        return list(views)
-
-    def _gather_flat_params(self):
-        views = list()
-        for p in self._params:
-            view = p.contiguous().view(-1)
-            views.append(view)
-        return torch.cat(views, 0)
-
     def _gather_flat_grad(self):
         views = list()
         for p in self._params:
@@ -130,7 +97,7 @@ class HessianFree(torch.optim.Optimizer):
         state['func_evals'] += 1
 
         # Gather current parameters and respective gradients
-        flat_params = self._gather_flat_params()
+        flat_params = parameters_to_vector(self._params)
         flat_grad = self._gather_flat_grad()
 
         # Define linear operator
@@ -179,7 +146,7 @@ class HessianFree(torch.optim.Optimizer):
         delta = state['init_delta'] = deltas[-1]
         M = Ms[-1]
 
-        self._modify_params(flat_params + delta)
+        vector_to_parameters(flat_params + delta, self._params)
         loss_now = closure()[0]
         current_evals += 1
         state['func_evals'] += 1
@@ -190,7 +157,7 @@ class HessianFree(torch.optim.Optimizer):
             print("Loss before bt: {}".format(float(loss_now)))
 
         for (d, m) in zip(reversed(deltas[:-1][::2]), reversed(Ms[:-1][::2])):
-            self._modify_params(flat_params + d)
+            vector_to_parameters(flat_params + d, self._params)
             loss_prev = closure()[0]
             if float(loss_prev) > float(loss_now):
                 break
@@ -226,14 +193,14 @@ class HessianFree(torch.optim.Optimizer):
                 break
 
             alpha *= beta
-            self._modify_params(flat_params + alpha * delta)
+            vector_to_parameters(flat_params + alpha * delta, self._params)
             loss_now = closure()[0]
         else:  # No good update found
             alpha = 0.0
             loss_now = loss_before
 
         # Update the parameters (this time fo real)
-        self._modify_params(flat_params + alpha * delta)
+        vector_to_parameters(flat_params + alpha * delta, self._params)
 
         if verbose:
             print("Final loss: {}".format(float(loss_now)))
@@ -314,49 +281,42 @@ class HessianFree(torch.optim.Optimizer):
         """
         Computes the Hessian vector product.
         """
-        # gg = torch.autograd.grad(gradient, self._params,
-        #                          grad_outputs=vec, retain_graph=True)
-        # Hv = torch.cat([g.contiguous().view(-1) for g in gg])
-        vec_ = self._cast_like_params(vec)
+        Hv = self._Rop(gradient, self._params, vec)
 
-        Hv = self._Rop(gradient, self._params, vec_)
-        Hv = torch.cat([h.flatten() for h in Hv])
-
-        return Hv + damping * vec  # Tikhonov damping (Section 20.8.1)
+        # Tikhonov damping (Section 20.8.1)
+        return parameters_to_vector(Hv).detach() + damping * vec
 
     def _Gv(self, loss, output, vec, damping):
         """
         Computes the generalized Gauss-Newton vector product.
         """
-        vec_ = self._cast_like_params(vec)
-        Jv = self._Rop(output, self._params, vec_)
+        Jv = self._Rop(output, self._params, vec)
 
         gradient = torch.autograd.grad(loss, output, create_graph=True)
-        HJv = self._Rop(gradient, output, Jv)
+        HJv = self._Rop(gradient, output, parameters_to_vector(Jv).detach())
 
         JHJv = torch.autograd.grad(
             output, self._params, grad_outputs=HJv, retain_graph=True)
 
-        Gv = torch.cat([j.detach().flatten() for j in JHJv])
-        return Gv + damping * vec  # Tikhonov damping (Section 20.8.1)
+        # Tikhonov damping (Section 20.8.1)
+        return parameters_to_vector(JHJv).detach() + damping * vec
 
     def _Rop(self, y, x, v):
         """
         Computes the product (dy_i/dx_j) v_j: R-operator
         """
         if isinstance(y, tuple):
-            ws = [torch.zeros_like(
-                y_i).requires_grad_(True) for y_i in y]
+            ws = [torch.zeros_like(y_i, requires_grad=True) for y_i in y]
         else:
-            ws = torch.zeros_like(y).requires_grad_(True)
+            ws = torch.zeros_like(y, requires_grad=True)
 
         jacobian = torch.autograd.grad(
             y, x, grad_outputs=ws, create_graph=True)
 
-        Jv = torch.autograd.grad(
-            jacobian, ws, grad_outputs=v, retain_graph=True)
+        Jv = torch.autograd.grad(parameters_to_vector(
+            jacobian), ws, grad_outputs=v, retain_graph=False)
 
-        return tuple([j.detach() for j in Jv])
+        return Jv
 
 
 # The empirical Fisher diagonal (Section 20.11.3)

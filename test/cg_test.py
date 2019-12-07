@@ -18,7 +18,7 @@ b = np.random.rand(n)
 x0 = 1e-3 * np.ones_like(b)
 
 # Numpy result
-cg_np = cg(A=A, b=b, x0=x0, maxiter=1000)[0]
+cg_np = cg(A=A, b=b, x0=x0, maxiter=1000, tol=1e-12)[0]
 
 # Dummy parameters for constructor
 hf = HessianFree(iter([torch.nn.Parameter()]))
@@ -33,8 +33,8 @@ def A_lin(vec):
 
 
 # Torch result
-cg_t = hf._CG(A=A_lin, b=b_t, x0=x0_t, max_iter=1000)[0][-1]
+cg_t = hf._CG(A=A_lin, b=b_t, x0=x0_t, max_iter=1000, tol=1e-12, eps=1e-14)[0][-1]
 
 # Sometimes fails due to rtol
 assert np.allclose(cg_np, cg_t.data.numpy(),
-                   rtol=1e-4, atol=1e-8), "Test failed"
+                   rtol=1e-6, atol=1e-10), "Test failed"
