@@ -52,8 +52,11 @@ class HessianFree(torch.optim.Optimizer):
                         verbose=verbose)
         super(HessianFree, self).__init__(params, defaults)
 
+        if len(self.param_groups) != 1:
+            raise ValueError(
+                "HessianFree doesn't support per-parameter options (parameter groups)")
+
         self._params = self.param_groups[0]['params']
-        self._numel_cache = None
 
     def _gather_flat_grad(self):
         views = list()
