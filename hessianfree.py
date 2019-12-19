@@ -153,8 +153,8 @@ class HessianFree(torch.optim.Optimizer):
 
         # Conjugate-Gradient backtracking (Section 20.8.7)
         if verbose:
-            print("Original loss: \t{}".format(float(loss_before)))
-            print("Loss before bt: {}".format(float(loss_now)))
+            print("Loss before CG: {}".format(float(loss_before)))
+            print("Loss before BT: {}".format(float(loss_now)))
 
         for (d, m) in zip(reversed(deltas[:-1][::2]), reversed(Ms[:-1][::2])):
             vector_to_parameters(flat_params + d, self._params)
@@ -166,7 +166,7 @@ class HessianFree(torch.optim.Optimizer):
             loss_now = loss_prev
 
         if verbose:
-            print("Loss after bt: \t{}".format(float(loss_now)))
+            print("Loss after BT:  {}".format(float(loss_now)))
 
         # The Levenberg-Marquardt Heuristic (Section 20.8.5)
         reduction_ratio = (float(loss_now) -
@@ -178,10 +178,6 @@ class HessianFree(torch.optim.Optimizer):
             group['damping'] *= 2 / 3
         if reduction_ratio < 0:
             group['init_delta'] = 0
-
-        if verbose:
-            print("Reduction_ratio: {}".format(reduction_ratio))
-            print("Damping: {}".format(group['damping']))
 
         # Line Searching (Section 20.8.8)
         beta = 0.8
@@ -203,8 +199,10 @@ class HessianFree(torch.optim.Optimizer):
         vector_to_parameters(flat_params + alpha * delta, self._params)
 
         if verbose:
-            print("Final loss: {}".format(float(loss_now)))
-            print("Lr: {}".format(alpha), end='\n\n')
+            print("Loss after LS:  {0} (lr: {1:.3f})".format(
+                float(loss_now), alpha))
+            print("Tikhonov damping: {0:.3f} (reduction ratio: {1:.3f})".format(
+                group['damping'], reduction_ratio), end='\n\n')
 
         return loss_now
 
@@ -284,7 +282,7 @@ class HessianFree(torch.optim.Optimizer):
         Hv = self._Rop(gradient, self._params, vec)
 
         # Tikhonov damping (Section 20.8.1)
-        return parameters_to_vector(Hv).detach() + damping * vec
+        return Hv.detach() + damping * vec
 
     def _Gv(self, loss, output, vec, damping):
         """
@@ -293,15 +291,16 @@ class HessianFree(torch.optim.Optimizer):
         Jv = self._Rop(output, self._params, vec)
 
         gradient = torch.autograd.grad(loss, output, create_graph=True)
-        HJv = self._Rop(gradient, output, parameters_to_vector(Jv).detach())
+        HJv = self._Rop(gradient, output, Jv)
 
         JHJv = torch.autograd.grad(
-            output, self._params, grad_outputs=HJv, retain_graph=True)
+            output, self._params, grad_outputs=HJv.reshape_as(output), retain_graph=True)
 
         # Tikhonov damping (Section 20.8.1)
         return parameters_to_vector(JHJv).detach() + damping * vec
 
-    def _Rop(self, y, x, v):
+    @staticmethod
+    def _Rop(y, x, v, create_graph=False):
         """
         Computes the product (dy_i/dx_j) v_j: R-operator
         """
@@ -314,9 +313,9 @@ class HessianFree(torch.optim.Optimizer):
             y, x, grad_outputs=ws, create_graph=True)
 
         Jv = torch.autograd.grad(parameters_to_vector(
-            jacobian), ws, grad_outputs=v, retain_graph=False)
+            jacobian), ws, grad_outputs=v, create_graph=create_graph)
 
-        return Jv
+        return parameters_to_vector(Jv)
 
 
 # The empirical Fisher diagonal (Section 20.11.3)
